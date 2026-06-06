@@ -1,0 +1,6 @@
+{
+  "name": "Pottery Diary",
+  "description": "An elegant and minimalist personal pottery diary and portfolio with public gallery and artist management controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
