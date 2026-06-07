@@ -51,12 +51,12 @@ export default function App() {
   // Developer and Publish notifications state
   const [publishNotification, setPublishNotification] = useState<string | null>(null);
 
-  // Curtains closed state (persisted in localStorage)
+  // Curtains closed state (persisted in localStorage and synchronized with server)
   const [curtainsClosed, setCurtainsClosed] = useState<boolean>(() => {
     return localStorage.getItem('pottery_diary_curtains_closed') === 'true';
   });
   
-  // Thoughts hidden state (persisted in localStorage)
+  // Thoughts hidden state (persisted in localStorage and synchronized with server)
   const [thoughtsHidden, setThoughtsHidden] = useState<boolean>(() => {
     return localStorage.getItem('pottery_diary_thoughts_hidden') === 'true';
   });
@@ -73,10 +73,53 @@ export default function App() {
     );
   }, []);
 
-  const handleToggleCurtains = () => {
+  // Fetch global settings from backend Express store
+  const loadGlobalSettings = async () => {
+    try {
+      const res = await fetch('/api/public-settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.curtainsClosed === 'boolean' && data.curtainsClosed !== curtainsClosed) {
+          setCurtainsClosed(data.curtainsClosed);
+          localStorage.setItem('pottery_diary_curtains_closed', String(data.curtainsClosed));
+        }
+        if (typeof data.thoughtsHidden === 'boolean' && data.thoughtsHidden !== thoughtsHidden) {
+          setThoughtsHidden(data.thoughtsHidden);
+          localStorage.setItem('pottery_diary_thoughts_hidden', String(data.thoughtsHidden));
+        }
+      }
+    } catch (err) {
+      console.warn('[Sync] Could not automatically pull global settings from backend:', err);
+    }
+
+    try {
+      const resInv = await fetch('/api/guest-invitations');
+      if (resInv.ok) {
+        const dataInv = await resInv.json();
+        if (Array.isArray(dataInv)) {
+          localStorage.setItem('pottery_diary_guest_invitations', JSON.stringify(dataInv));
+        }
+      }
+    } catch (err) {
+      console.warn('[Sync] Could not automatically pull guest invitations from backend:', err);
+    }
+  };
+
+  const handleToggleCurtains = async () => {
     const nextVal = !curtainsClosed;
     setCurtainsClosed(nextVal);
     localStorage.setItem('pottery_diary_curtains_closed', String(nextVal));
+    
+    try {
+      await fetch('/api/public-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ curtainsClosed: nextVal })
+      });
+    } catch (err) {
+      console.error('[Sync] Failed to post curtains state to server:', err);
+    }
+
     if (nextVal) {
       setPublishNotification('The curtains have been closed. Guests will now see the studio landing page.');
     } else {
@@ -85,10 +128,21 @@ export default function App() {
     setTimeout(() => setPublishNotification(null), 5000);
   };
 
-  const handleToggleThoughts = () => {
+  const handleToggleThoughts = async () => {
     const nextVal = !thoughtsHidden;
     setThoughtsHidden(nextVal);
     localStorage.setItem('pottery_diary_thoughts_hidden', String(nextVal));
+
+    try {
+      await fetch('/api/public-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thoughtsHidden: nextVal })
+      });
+    } catch (err) {
+      console.error('[Sync] Failed to post thoughts state to server:', err);
+    }
+
     if (nextVal) {
       setPublishNotification('Your thoughts and notes on works have been hidden from public view.');
     } else {
@@ -155,9 +209,11 @@ export default function App() {
       verifySession();
     }
     loadArtworks();
+    loadGlobalSettings();
 
     const interval = setInterval(() => {
       verifySession();
+      loadGlobalSettings();
     }, 3000);
     return () => clearInterval(interval);
   }, []);

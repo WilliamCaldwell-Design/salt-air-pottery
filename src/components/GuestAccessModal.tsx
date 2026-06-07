@@ -16,7 +16,7 @@ export default function GuestAccessModal({ onClose, onLoginSuccess }: GuestAcces
   const [accessCode, setAccessCode] = useState<string>('');
   const [error, setError] = useState<string>('');
 
-  const handleAccessSubmit = (e?: React.FormEvent | React.KeyboardEvent) => {
+  const handleAccessSubmit = async (e?: React.FormEvent | React.KeyboardEvent) => {
     if (e) e.preventDefault();
     const cleanCode = accessCode.trim().toLowerCase();
 
@@ -25,15 +25,32 @@ export default function GuestAccessModal({ onClose, onLoginSuccess }: GuestAcces
       return;
     }
 
-    // Retrieve active invitations from localStorage
-    const savedInvitesStr = localStorage.getItem('pottery_diary_guest_invitations');
+    // Retrieve active invitations from server first for absolute consistency
     let invites: GuestInvitation[] = [];
     try {
-      if (savedInvitesStr) {
-        invites = JSON.parse(savedInvitesStr);
+      const res = await fetch('/api/guest-invitations');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          invites = data;
+          // Synchronize local cache immediately
+          localStorage.setItem('pottery_diary_guest_invitations', JSON.stringify(data));
+        }
       }
     } catch (err) {
-      console.error('Failed to parse guest invitations:', err);
+      console.warn('[Sync] Failed to fetch guest invitations from server, using local fallback:', err);
+    }
+
+    // Fallback if server query fails
+    if (invites.length === 0) {
+      const savedInvitesStr = localStorage.getItem('pottery_diary_guest_invitations');
+      try {
+        if (savedInvitesStr) {
+          invites = JSON.parse(savedInvitesStr);
+        }
+      } catch (err) {
+        console.error('Failed to parse guest invitations from local storage:', err);
+      }
     }
 
     // Seek matched invitation (case-insensitive)

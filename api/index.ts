@@ -4,11 +4,99 @@ dotenv.config();
 
 import express from 'express';
 import { Resend } from 'resend';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 
 // Middleware to parse incoming JSON payloads
 app.use(express.json());
+
+// Global server-side settings cache with automatic /tmp file integration
+let globalSettings = {
+  curtainsClosed: false,
+  thoughtsHidden: false,
+};
+
+let globalInvitations: any[] = [];
+
+const SETTINGS_FILE_PATH = path.join('/tmp', 'pottery_public_settings.json');
+const INVITATIONS_FILE_PATH = path.join('/tmp', 'pottery_guest_invitations.json');
+
+// Proactively synchronize server memory with file cache if available
+try {
+  if (fs.existsSync(SETTINGS_FILE_PATH)) {
+    const cachedData = fs.readFileSync(SETTINGS_FILE_PATH, 'utf8');
+    const parsed = JSON.parse(cachedData);
+    globalSettings.curtainsClosed = !!parsed.curtainsClosed;
+    globalSettings.thoughtsHidden = !!parsed.thoughtsHidden;
+    console.log('[System Cache] Restored settings from temporary storage:', globalSettings);
+  }
+} catch (error) {
+  console.warn('[System Cache] No active settings disk backup found. Utilizing pure virtual memory.', error);
+}
+
+try {
+  if (fs.existsSync(INVITATIONS_FILE_PATH)) {
+    const cachedData = fs.readFileSync(INVITATIONS_FILE_PATH, 'utf8');
+    globalInvitations = JSON.parse(cachedData);
+    console.log('[System Cache] Restored guest invitations from temporary storage (count):', globalInvitations.length);
+  }
+} catch (error) {
+  console.warn('[System Cache] No active invitations disk backup found. Utilizing pure virtual memory.', error);
+}
+
+// Serve the current global settings state to all visitors
+app.get('/api/public-settings', (req, res) => {
+  res.json(globalSettings);
+});
+
+// Update the global settings state (restricted operation)
+app.post('/api/public-settings', (req, res) => {
+  try {
+    const { curtainsClosed, thoughtsHidden } = req.body;
+    if (typeof curtainsClosed === 'boolean') {
+      globalSettings.curtainsClosed = curtainsClosed;
+    }
+    if (typeof thoughtsHidden === 'boolean') {
+      globalSettings.thoughtsHidden = thoughtsHidden;
+    }
+
+    try {
+      fs.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(globalSettings), 'utf8');
+    } catch (saveErr) {
+      console.warn('[System Cache] Disk sync failed (non-blocking):', saveErr);
+    }
+
+    res.json({ success: true, settings: globalSettings });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Error occurred while updating global settings.' });
+  }
+});
+
+// Serve the current active list of guest invitations
+app.get('/api/guest-invitations', (req, res) => {
+  res.json(globalInvitations);
+});
+
+// Update the active list of guest invitations (replaces the list)
+app.post('/api/guest-invitations', (req, res) => {
+  try {
+    const { invitations } = req.body;
+    if (Array.isArray(invitations)) {
+      globalInvitations = invitations;
+      
+      try {
+        fs.writeFileSync(INVITATIONS_FILE_PATH, JSON.stringify(globalInvitations), 'utf8');
+      } catch (saveErr) {
+        console.warn('[System Cache] Invitations disk sync failed (non-blocking):', saveErr);
+      }
+    }
+    res.json({ success: true, invitations: globalInvitations });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Error occurred while updating guest invitations.' });
+  }
+});
 
 // API endpoint to proxy the recovery email dispatch safely
 app.post('/api/send-recovery-email', async (req, res) => {

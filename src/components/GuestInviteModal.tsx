@@ -21,8 +21,22 @@ export default function GuestInviteModal({ onClose, onUpdate }: GuestInviteModal
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Load invitations from localStorage
-  const loadInvitations = () => {
+  // Load invitations from localStorage and synchronize with server
+  const loadInvitations = async () => {
+    try {
+      const res = await fetch('/api/guest-invitations');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setInvitations(data);
+          localStorage.setItem('pottery_diary_guest_invitations', JSON.stringify(data));
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[Sync] Could not pull guest invitations from server, falling back:', err);
+    }
+
     const saved = localStorage.getItem('pottery_diary_guest_invitations');
     if (saved) {
       try {
@@ -60,7 +74,7 @@ export default function GuestInviteModal({ onClose, onUpdate }: GuestInviteModal
     setNewCode(code);
   };
 
-  const handleCreateInvitation = (e: React.FormEvent) => {
+  const handleCreateInvitation = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
@@ -101,6 +115,17 @@ export default function GuestInviteModal({ onClose, onUpdate }: GuestInviteModal
     const updated = [newInvite, ...invitations];
     localStorage.setItem('pottery_diary_guest_invitations', JSON.stringify(updated));
     setInvitations(updated);
+
+    try {
+      await fetch('/api/guest-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invitations: updated })
+      });
+    } catch (saveErr) {
+      console.error('[Sync] Failed to push newly created guest invitation to server:', saveErr);
+    }
+
     setSuccessMsg(`Guest invitation "${codeClean}" created successfully!`);
     generateSuggestedCode();
     onUpdate();
@@ -111,7 +136,7 @@ export default function GuestInviteModal({ onClose, onUpdate }: GuestInviteModal
     }, 3500);
   };
 
-  const handleRevokeInvitation = (id: string, code: string) => {
+  const handleRevokeInvitation = async (id: string, code: string) => {
     if (confirmDeleteId !== id) {
       setConfirmDeleteId(id);
       // Auto cancel visual delete prompt after 4 seconds
@@ -125,6 +150,16 @@ export default function GuestInviteModal({ onClose, onUpdate }: GuestInviteModal
     localStorage.setItem('pottery_diary_guest_invitations', JSON.stringify(updated));
     setInvitations(updated);
     setConfirmDeleteId(null);
+
+    try {
+      await fetch('/api/guest-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invitations: updated })
+      });
+    } catch (saveErr) {
+      console.error('[Sync] Failed to push revoked guest invitation list to server:', saveErr);
+    }
 
     // If there's an active guest session using this revoked code, clear it immediately
     const cachedGuest = localStorage.getItem('pottery_diary_guest_session');
